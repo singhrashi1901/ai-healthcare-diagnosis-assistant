@@ -1,4 +1,3 @@
-
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 
@@ -6,6 +5,7 @@ import joblib
 import numpy as np
 import os
 import re
+import shutil
 
 from werkzeug.utils import secure_filename
 from pypdf import PdfReader
@@ -28,9 +28,17 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # TESSERACT OCR
 # ============================================================
 
-TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+# Automatically find Tesseract on the system.
+# Windows:
+#   Finds installed tesseract.exe automatically.
+#
+# Render/Linux:
+#   Finds the Linux Tesseract executable automatically
+#   if Tesseract has been installed.
 
-if os.path.exists(TESSERACT_PATH):
+TESSERACT_PATH = shutil.which("tesseract")
+
+if TESSERACT_PATH:
 
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
 
@@ -38,18 +46,21 @@ if os.path.exists(TESSERACT_PATH):
     print("Path:", TESSERACT_PATH)
 
     try:
+
         print(
             "Tesseract Version:",
             pytesseract.get_tesseract_version()
         )
+
     except Exception as e:
+
         print("⚠️ Tesseract found but could not start.")
-        print(e)
+        print("Error:", e)
 
 else:
 
-    print("⚠️ Tesseract OCR not found.")
-    print("Expected path:", TESSERACT_PATH)
+    print("⚠️ Tesseract OCR not found!")
+    print("OCR will not work until Tesseract is installed.")
 
 
 # ============================================================
@@ -72,6 +83,7 @@ app.config["MAX_CONTENT_LENGTH"] = (
     10 * 1024 * 1024
 )
 
+
 ALLOWED_EXTENSIONS = {
     "pdf",
     "jpg",
@@ -91,7 +103,7 @@ print("===================================")
 try:
 
     # Lightweight KNN model
-    # Size: approximately 5.86 MB
+    # Approximately 5.86 MB
 
     knn_model = joblib.load(
         os.path.join(
@@ -506,11 +518,11 @@ def extract_image_text(file_path):
             file_path
         )
 
+        # ----------------------------------------------------
         # Check Tesseract
+        # ----------------------------------------------------
 
-        if not os.path.exists(
-            TESSERACT_PATH
-        ):
+        if not TESSERACT_PATH:
 
             print(
                 "❌ Tesseract executable not found!"
@@ -518,7 +530,14 @@ def extract_image_text(file_path):
 
             return ""
 
+        print(
+            "✅ Using Tesseract:",
+            TESSERACT_PATH
+        )
+
+        # ----------------------------------------------------
         # Open image
+        # ----------------------------------------------------
 
         image = Image.open(
             file_path
@@ -539,7 +558,9 @@ def extract_image_text(file_path):
             "RGB"
         )
 
+        # ----------------------------------------------------
         # Upscale
+        # ----------------------------------------------------
 
         image = image.resize(
             (
@@ -554,13 +575,17 @@ def extract_image_text(file_path):
             image.size
         )
 
+        # ----------------------------------------------------
         # Grayscale
+        # ----------------------------------------------------
 
         gray = ImageOps.grayscale(
             image
         )
 
+        # ----------------------------------------------------
         # Contrast
+        # ----------------------------------------------------
 
         gray = ImageEnhance.Contrast(
             gray
@@ -568,7 +593,9 @@ def extract_image_text(file_path):
             2.5
         )
 
+        # ----------------------------------------------------
         # Sharpness
+        # ----------------------------------------------------
 
         gray = ImageEnhance.Sharpness(
             gray
@@ -612,7 +639,9 @@ def extract_image_text(file_path):
             len(text2)
         )
 
+        # ----------------------------------------------------
         # Choose better OCR result
+        # ----------------------------------------------------
 
         if len(
             text2.strip()
@@ -1142,8 +1171,8 @@ if __name__ == "__main__":
     )
 
     app.run(
-        host="127.0.0.1",
-        port=5000,
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
         debug=False,
         use_reloader=False
     )
