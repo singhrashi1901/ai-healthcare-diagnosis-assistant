@@ -1,15 +1,20 @@
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-
 import joblib
 import numpy as np
-import os
 import re
 import shutil
+import tempfile
+import warnings
 
 from werkzeug.utils import secure_filename
 from pypdf import PdfReader
-
 from PIL import Image, ImageEnhance, ImageOps
 import pytesseract
 
@@ -23,140 +28,175 @@ CORS(app)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
+
+ALLOWED_EXTENSIONS = {"pdf", "jpg", "jpeg", "png"}
+
 
 # ============================================================
 # TESSERACT OCR
+# Works on Windows and Linux/Render when Tesseract is installed
 # ============================================================
 
-# Automatically find Tesseract on the system.
-# Windows:
-#   Finds installed tesseract.exe automatically.
-#
-# Render/Linux:
-#   Finds the Linux Tesseract executable automatically
-#   if Tesseract has been installed.
+def find_tesseract():
+    env_path = os.environ.get("TESSERACT_CMD")
 
-TESSERACT_PATH = shutil.which("tesseract")
+    if env_path and os.path.isfile(env_path):
+        return env_path
+
+    found = shutil.which("tesseract")
+
+    if found:
+        return found
+
+    windows_paths = [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    ]
+
+    for path in windows_paths:
+        if os.path.isfile(path):
+            return path
+
+    return None
+
+
+TESSERACT_PATH = find_tesseract()
+OCR_AVAILABLE = False
 
 if TESSERACT_PATH:
-
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
 
-    print("✅ Tesseract OCR found!")
-    print("Path:", TESSERACT_PATH)
+    try:
+        version = pytesseract.get_tesseract_version()
+
+        OCR_AVAILABLE = True
+
+        print("✅ Tesseract OCR found!")
+        print("Path:", TESSERACT_PATH)
+        print("Tesseract Version:", version)
+
+    except Exception as e:
+        print("⚠️ Tesseract was found but could not start:", e)
+
+else:
+    print("⚠️ Tesseract OCR not installed/found.")
+    print(
+        "OCR will work locally if Tesseract is installed, "
+        "or on Render if Tesseract is installed."
+    )
+
+
+# ============================================================
+# ML MODELS
+# Lazy loading reduces startup memory.
+# n_jobs=1 prevents unnecessary parallel memory usage on Render.
+# ============================================================
+
+knn_model = None
+scaler = None
+encoder = None
+symptom_columns = []
+model_loaded = False
+
+
+def load_models():
+
+    global knn_model
+    global scaler
+    global encoder
+    global symptom_columns
+    global model_loaded
+
+    if model_loaded:
+        return
+
+    print("\n===================================")
+    print("      LOADING AI HEALTHCARE MODEL")
+    print("===================================")
+
+    model_path = os.path.join(
+        BASE_DIR,
+        "knn_model_light.pkl"
+    )
+
+    scaler_path = os.path.join(
+        BASE_DIR,
+        "scaler.pkl"
+    )
+
+    encoder_path = os.path.join(
+        BASE_DIR,
+        "label_encoder.pkl"
+    )
 
     try:
 
-        print(
-            "Tesseract Version:",
-            pytesseract.get_tesseract_version()
+        # Do NOT use mmap_mode here.
+        # knn_model_light.pkl was saved with compression,
+        # and compressed joblib arrays cannot be memory-mapped.
+
+        knn_model = joblib.load(
+            model_path
         )
+
+        scaler = joblib.load(
+            scaler_path
+        )
+
+        encoder = joblib.load(
+            encoder_path
+        )
+
+        # The original lightweight model was created with n_jobs=-1.
+        # One job is much safer for Render's small memory limit.
+
+        if hasattr(knn_model, "n_jobs"):
+            knn_model.n_jobs = 1
+
+        symptom_columns = list(
+            getattr(
+                scaler,
+                "feature_names_in_",
+                []
+            )
+        )
+
+        if not symptom_columns:
+            raise RuntimeError(
+                "scaler.pkl does not contain feature_names_in_."
+            )
+
+        model_loaded = True
+
+        print("✅ ML models loaded successfully!")
+        print("✅ Lightweight KNN model loaded!")
+        print("Model: knn_model_light.pkl")
+        print("Symptoms:", len(symptom_columns))
+        print("Diseases:", len(encoder.classes_))
 
     except Exception as e:
 
-        print("⚠️ Tesseract found but could not start.")
-        print("Error:", e)
+        knn_model = None
+        scaler = None
+        encoder = None
+        symptom_columns = []
+        model_loaded = False
 
-else:
-
-    print("⚠️ Tesseract OCR not found!")
-    print("OCR will not work until Tesseract is installed.")
-
-
-# ============================================================
-# UPLOAD SETTINGS
-# ============================================================
-
-UPLOAD_FOLDER = os.path.join(
-    BASE_DIR,
-    "uploads"
-)
-
-os.makedirs(
-    UPLOAD_FOLDER,
-    exist_ok=True
-)
-
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-
-app.config["MAX_CONTENT_LENGTH"] = (
-    10 * 1024 * 1024
-)
-
-
-ALLOWED_EXTENSIONS = {
-    "pdf",
-    "jpg",
-    "jpeg",
-    "png"
-}
-
-
-# ============================================================
-# LOAD ML MODELS
-# ============================================================
-
-print("\n===================================")
-print("      LOADING AI HEALTHCARE MODEL")
-print("===================================")
-
-try:
-
-    # Lightweight KNN model
-    # Approximately 5.86 MB
-
-    knn_model = joblib.load(
-        os.path.join(
-            BASE_DIR,
-            "knn_model_light.pkl"
+        print("\n❌ MODEL LOADING ERROR")
+        print("-----------------------------------")
+        print(
+            type(e).__name__,
+            ":",
+            e
         )
-    )
+        print("-----------------------------------")
 
-    scaler = joblib.load(
-        os.path.join(
-            BASE_DIR,
-            "scaler.pkl"
-        )
-    )
-
-    encoder = joblib.load(
-        os.path.join(
-            BASE_DIR,
-            "label_encoder.pkl"
-        )
-    )
-
-    print("✅ ML models loaded successfully!")
-    print("✅ Lightweight KNN model loaded!")
-    print("Model: knn_model_light.pkl")
-
-except Exception as e:
-
-    print("\n❌ MODEL LOADING ERROR")
-    print("-----------------------------------")
-    print(e)
-    print("-----------------------------------")
-
-    raise
-
-
-# ============================================================
-# SYMPTOM COLUMNS
-# ============================================================
-
-symptom_columns = list(
-    scaler.feature_names_in_
-)
-
-print(
-    "Symptoms:",
-    len(symptom_columns)
-)
-
-print(
-    "Diseases:",
-    len(encoder.classes_)
-)
+        raise
 
 
 # ============================================================
@@ -285,13 +325,13 @@ def clean_text(text):
 
 def extract_symptoms(text):
 
+    load_models()
+
     text = clean_text(text)
 
     detected = set()
 
-    # --------------------------------------------------------
     # Dataset symptom matching
-    # --------------------------------------------------------
 
     for symptom in symptom_columns:
 
@@ -299,15 +339,15 @@ def extract_symptoms(text):
             symptom
         )
 
-        if symptom_lower in text:
-
+        if (
+            symptom_lower
+            and symptom_lower in text
+        ):
             detected.add(
                 symptom
             )
 
-    # --------------------------------------------------------
     # Alias matching
-    # --------------------------------------------------------
 
     for symptom, aliases in symptom_aliases.items():
 
@@ -316,11 +356,7 @@ def extract_symptoms(text):
 
         for alias in aliases:
 
-            alias = clean_text(
-                alias
-            )
-
-            if alias in text:
+            if clean_text(alias) in text:
 
                 detected.add(
                     symptom
@@ -341,18 +377,21 @@ def create_feature_vector(
     detected_symptoms
 ):
 
+    load_models()
+
     vector = [
 
         1 if symptom in detected_symptoms
         else 0
 
         for symptom in symptom_columns
-
     ]
 
-    return np.array(
+    # float32 uses less memory than float64
+
+    return np.asarray(
         vector,
-        dtype=np.float64
+        dtype=np.float32
     ).reshape(
         1,
         -1
@@ -367,29 +406,38 @@ def predict_from_symptoms(
     detected_symptoms
 ):
 
+    load_models()
+
     if not detected_symptoms:
-
         return None
-
-    # Create feature vector
 
     feature_vector = create_feature_vector(
         detected_symptoms
     )
 
-    # Scale
+    # Your scaler was fitted using feature names.
+    # The original project passed a NumPy array, which generated
+    # a harmless sklearn warning. Suppress only that warning.
 
-    scaled_features = scaler.transform(
-        feature_vector
-    )
+    with warnings.catch_warnings():
 
-    # KNN prediction
+        warnings.filterwarnings(
+            "ignore",
+            message="X does not have valid feature names"
+        )
+
+        scaled_features = scaler.transform(
+            feature_vector
+        )
+
+    # Keep prediction single-threaded.
+
+    if hasattr(knn_model, "n_jobs"):
+        knn_model.n_jobs = 1
 
     prediction = knn_model.predict(
         scaled_features
     )
-
-    # Convert encoded value to disease
 
     disease = encoder.inverse_transform(
         prediction
@@ -423,7 +471,6 @@ def predict_disease(text):
             "symptoms": [],
 
             "disease": None
-
         }
 
     disease = predict_from_symptoms(
@@ -442,7 +489,6 @@ def predict_disease(text):
 
         "disease":
             disease
-
     }
 
 
@@ -453,7 +499,6 @@ def predict_disease(text):
 def allowed_file(filename):
 
     if "." not in filename:
-
         return False
 
     extension = filename.rsplit(
@@ -470,7 +515,7 @@ def allowed_file(filename):
 
 def extract_pdf_text(file_path):
 
-    text = ""
+    text_parts = []
 
     try:
 
@@ -483,10 +528,8 @@ def extract_pdf_text(file_path):
             page_text = page.extract_text()
 
             if page_text:
-
-                text += (
+                text_parts.append(
                     page_text
-                    + "\n"
                 )
 
     except Exception as e:
@@ -498,7 +541,9 @@ def extract_pdf_text(file_path):
 
         return ""
 
-    return text.strip()
+    return "\n".join(
+        text_parts
+    ).strip()
 
 
 # ============================================================
@@ -506,6 +551,15 @@ def extract_pdf_text(file_path):
 # ============================================================
 
 def extract_image_text(file_path):
+
+    if not OCR_AVAILABLE:
+
+        print(
+            "⚠️ OCR requested, "
+            "but Tesseract is not available."
+        )
+
+        return ""
 
     try:
 
@@ -518,150 +572,122 @@ def extract_image_text(file_path):
             file_path
         )
 
-        # ----------------------------------------------------
-        # Check Tesseract
-        # ----------------------------------------------------
+        with Image.open(
+            file_path
+        ) as original:
 
-        if not TESSERACT_PATH:
-
-            print(
-                "❌ Tesseract executable not found!"
+            image = original.convert(
+                "RGB"
             )
 
-            return ""
+            print(
+                "Original size:",
+                image.size
+            )
 
-        print(
-            "✅ Using Tesseract:",
-            TESSERACT_PATH
-        )
+            # Prevent very large images from causing
+            # a memory spike on Render.
 
-        # ----------------------------------------------------
-        # Open image
-        # ----------------------------------------------------
+            max_side = 1800
 
-        image = Image.open(
-            file_path
-        )
+            scale = min(
+                1.0,
+                max_side / max(
+                    image.size
+                )
+            )
 
-        print(
-            "✅ Image loaded"
-        )
+            if scale < 1.0:
 
-        print(
-            "Original size:",
-            image.size
-        )
+                new_size = (
 
-        # RGB
+                    max(
+                        1,
+                        int(
+                            image.width * scale
+                        )
+                    ),
 
-        image = image.convert(
-            "RGB"
-        )
+                    max(
+                        1,
+                        int(
+                            image.height * scale
+                        )
+                    )
+                )
 
-        # ----------------------------------------------------
-        # Upscale
-        # ----------------------------------------------------
+                image = image.resize(
+                    new_size,
+                    Image.Resampling.LANCZOS
+                )
 
-        image = image.resize(
-            (
-                image.width * 3,
-                image.height * 3
-            ),
-            Image.Resampling.LANCZOS
-        )
+            # Moderate upscale for small images only.
 
-        print(
-            "Upscaled size:",
-            image.size
-        )
+            if max(
+                image.size
+            ) < 1200:
 
-        # ----------------------------------------------------
-        # Grayscale
-        # ----------------------------------------------------
+                image = image.resize(
 
-        gray = ImageOps.grayscale(
-            image
-        )
+                    (
+                        image.width * 2,
+                        image.height * 2
+                    ),
 
-        # ----------------------------------------------------
-        # Contrast
-        # ----------------------------------------------------
+                    Image.Resampling.LANCZOS
+                )
 
-        gray = ImageEnhance.Contrast(
-            gray
-        ).enhance(
-            2.5
-        )
+            gray = ImageOps.grayscale(
+                image
+            )
 
-        # ----------------------------------------------------
-        # Sharpness
-        # ----------------------------------------------------
+            gray = ImageEnhance.Contrast(
+                gray
+            ).enhance(
+                2.0
+            )
 
-        gray = ImageEnhance.Sharpness(
-            gray
-        ).enhance(
-            2
-        )
+            gray = ImageEnhance.Sharpness(
+                gray
+            ).enhance(
+                1.5
+            )
 
-        # ----------------------------------------------------
-        # OCR ATTEMPT 1
-        # ----------------------------------------------------
+            # OCR attempt 1
 
-        print(
-            "OCR attempt 1..."
-        )
+            print(
+                "OCR attempt 1..."
+            )
 
-        text1 = pytesseract.image_to_string(
-            gray,
-            config="--psm 6"
-        )
+            text1 = pytesseract.image_to_string(
+                gray,
+                config="--psm 6"
+            )
 
-        print(
-            "Characters:",
-            len(text1)
-        )
+            # OCR attempt 2
 
-        # ----------------------------------------------------
-        # OCR ATTEMPT 2
-        # ----------------------------------------------------
+            print(
+                "OCR attempt 2..."
+            )
 
-        print(
-            "OCR attempt 2..."
-        )
+            text2 = pytesseract.image_to_string(
+                gray,
+                config="--psm 11"
+            )
 
-        text2 = pytesseract.image_to_string(
-            gray,
-            config="--psm 11"
-        )
+            if len(
+                text2.strip()
+            ) > len(
+                text1.strip()
+            ):
 
-        print(
-            "Characters:",
-            len(text2)
-        )
+                text = text2
 
-        # ----------------------------------------------------
-        # Choose better OCR result
-        # ----------------------------------------------------
+            else:
 
-        if len(
-            text2.strip()
-        ) > len(
-            text1.strip()
-        ):
+                text = text1
 
-            text = text2
-
-        else:
-
-            text = text1
-
-        text = text.strip()
-
-        # ----------------------------------------------------
-        # RESULT
-        # ----------------------------------------------------
-
-        print("-----------------------------------")
+            text = text.strip()
 
         if text:
 
@@ -672,10 +698,6 @@ def extract_image_text(file_path):
             print(
                 "Extracted characters:",
                 len(text)
-            )
-
-            print(
-                "\nExtracted text:"
             )
 
             print(
@@ -705,14 +727,8 @@ def extract_image_text(file_path):
     except Exception as e:
 
         print(
-            "❌ OCR ERROR:"
-        )
-
-        print(
-            type(e).__name__
-        )
-
-        print(
+            "❌ OCR ERROR:",
+            type(e).__name__,
             e
         )
 
@@ -730,20 +746,11 @@ def extract_report_text(file_path):
         1
     )[1].lower()
 
-    print(
-        "Report type:",
-        extension
-    )
-
-    # PDF
-
     if extension == "pdf":
 
         return extract_pdf_text(
             file_path
         )
-
-    # IMAGE
 
     if extension in {
         "jpg",
@@ -824,8 +831,22 @@ def predict():
 
             }), 400
 
+        print(
+            "🔎 Prediction request received"
+        )
+
+        print(
+            "Symptoms text:",
+            symptoms_text[:500]
+        )
+
         result = predict_disease(
             symptoms_text
+        )
+
+        print(
+            "✅ Prediction completed:",
+            result.get("disease")
         )
 
         return jsonify(
@@ -836,6 +857,7 @@ def predict():
 
         print(
             "❌ Prediction error:",
+            type(e).__name__,
             e
         )
 
@@ -865,10 +887,6 @@ def analyze_report():
     file_path = None
 
     try:
-
-        # ----------------------------------------------------
-        # CHECK FILE
-        # ----------------------------------------------------
 
         if "report" not in request.files:
 
@@ -910,18 +928,27 @@ def analyze_report():
 
             }), 400
 
-        # ----------------------------------------------------
-        # SAVE TEMPORARY FILE
-        # ----------------------------------------------------
-
         filename = secure_filename(
             file.filename
         )
 
-        file_path = os.path.join(
-            app.config["UPLOAD_FOLDER"],
+        # Unique temporary file prevents
+        # simultaneous requests from overwriting files.
+
+        suffix = os.path.splitext(
             filename
+        )[1].lower()
+
+        fd, file_path = tempfile.mkstemp(
+
+            prefix="healthai_",
+
+            suffix=suffix,
+
+            dir=UPLOAD_FOLDER
         )
+
+        os.close(fd)
 
         file.save(
             file_path
@@ -936,24 +963,44 @@ def analyze_report():
             filename
         )
 
-        # ----------------------------------------------------
-        # EXTRACT TEXT
-        # ----------------------------------------------------
-
         report_text = extract_report_text(
             file_path
         )
 
         if not report_text:
 
+            if suffix == ".pdf":
+
+                message = (
+                    "No readable text could be extracted "
+                    "from this PDF. If it is a scanned PDF, "
+                    "upload a clear image version or use a "
+                    "PDF containing selectable text."
+                )
+
+            elif not OCR_AVAILABLE:
+
+                message = (
+                    "Tesseract OCR is not installed on "
+                    "this server. Install Tesseract on "
+                    "the deployment environment to "
+                    "analyze image reports."
+                )
+
+            else:
+
+                message = (
+                    "OCR could not extract readable text "
+                    "from this report. Please upload a "
+                    "clear medical report image."
+                )
+
             return jsonify({
 
                 "success": False,
 
                 "message":
-                    "OCR could not extract readable text "
-                    "from this report. Please upload a "
-                    "clear medical report image.",
+                    message,
 
                 "symptoms": [],
 
@@ -961,25 +1008,15 @@ def analyze_report():
 
             }), 400
 
-        # ----------------------------------------------------
-        # LIMIT TEXT
-        # ----------------------------------------------------
+        # Keep response reasonably small.
 
         report_text = report_text[
             :15000
         ]
 
-        # ----------------------------------------------------
-        # DETECT SYMPTOMS
-        # ----------------------------------------------------
-
         detected_symptoms = extract_symptoms(
             report_text
         )
-
-        # ----------------------------------------------------
-        # PREDICT DISEASE
-        # ----------------------------------------------------
 
         disease = None
 
@@ -988,10 +1025,6 @@ def analyze_report():
             disease = predict_from_symptoms(
                 detected_symptoms
             )
-
-        # ----------------------------------------------------
-        # ANALYSIS MESSAGE
-        # ----------------------------------------------------
 
         if disease:
 
@@ -1015,10 +1048,6 @@ def analyze_report():
 
             )
 
-        # ----------------------------------------------------
-        # TERMINAL OUTPUT
-        # ----------------------------------------------------
-
         print(
             "Detected symptoms:",
             detected_symptoms
@@ -1032,10 +1061,6 @@ def analyze_report():
         print(
             "===================================\n"
         )
-
-        # ----------------------------------------------------
-        # JSON RESPONSE
-        # ----------------------------------------------------
 
         return jsonify({
 
@@ -1061,14 +1086,8 @@ def analyze_report():
     except Exception as e:
 
         print(
-            "❌ REPORT ANALYSIS ERROR:"
-        )
-
-        print(
-            type(e).__name__
-        )
-
-        print(
+            "❌ REPORT ANALYSIS ERROR:",
+            type(e).__name__,
             e
         )
 
@@ -1085,10 +1104,6 @@ def analyze_report():
         }), 500
 
     finally:
-
-        # ----------------------------------------------------
-        # DELETE TEMPORARY FILE
-        # ----------------------------------------------------
 
         if (
             file_path
@@ -1127,7 +1142,7 @@ def file_too_large(error):
 
 
 # ============================================================
-# RUN FLASK
+# RUN FLASK LOCALLY
 # ============================================================
 
 if __name__ == "__main__":
@@ -1137,25 +1152,19 @@ if __name__ == "__main__":
     print("===================================")
 
     print(
-        "Symptoms:",
-        len(symptom_columns)
-    )
-
-    print(
-        "Diseases:",
-        len(encoder.classes_)
-    )
-
-    print(
         "PDF Analysis: ENABLED"
     )
 
     print(
-        "Image OCR: ENABLED"
+        "Image OCR:",
+        "ENABLED"
+        if OCR_AVAILABLE
+        else
+        "AVAILABLE WHEN TESSERACT IS INSTALLED"
     )
 
     print(
-        "Lightweight KNN Model: ENABLED"
+        "Lightweight KNN Model: ENABLED (lazy loaded)"
     )
 
     print(
@@ -1171,8 +1180,17 @@ if __name__ == "__main__":
     )
 
     app.run(
+
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000)),
+
+        port=int(
+            os.environ.get(
+                "PORT",
+                5000
+            )
+        ),
+
         debug=False,
+
         use_reloader=False
     )
