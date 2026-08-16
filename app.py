@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 
@@ -11,14 +12,7 @@ from pypdf import PdfReader
 
 from PIL import Image, ImageEnhance, ImageOps
 import pytesseract
-import pytesseract
-import os
 
-TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
-
-print("Tesseract:", pytesseract.get_tesseract_version())
 
 # ============================================================
 # FLASK APP
@@ -31,7 +25,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 # ============================================================
-# TESSERACT OCR CONFIGURATION
+# TESSERACT OCR
 # ============================================================
 
 TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -49,14 +43,13 @@ if os.path.exists(TESSERACT_PATH):
             pytesseract.get_tesseract_version()
         )
     except Exception as e:
-        print("⚠️ Tesseract found but could not start:")
+        print("⚠️ Tesseract found but could not start.")
         print(e)
 
 else:
 
-    print("❌ Tesseract OCR NOT FOUND!")
-    print("Expected path:")
-    print(TESSERACT_PATH)
+    print("⚠️ Tesseract OCR not found.")
+    print("Expected path:", TESSERACT_PATH)
 
 
 # ============================================================
@@ -97,13 +90,14 @@ print("===================================")
 
 try:
 
-    # Memory optimized loading
+    # Lightweight KNN model
+    # Size: approximately 5.86 MB
+
     knn_model = joblib.load(
         os.path.join(
             BASE_DIR,
-            "knn_model.pkl"
-        ),
-        mmap_mode="r"
+            "knn_model_light.pkl"
+        )
     )
 
     scaler = joblib.load(
@@ -121,11 +115,15 @@ try:
     )
 
     print("✅ ML models loaded successfully!")
+    print("✅ Lightweight KNN model loaded!")
+    print("Model: knn_model_light.pkl")
 
 except Exception as e:
 
-    print("❌ MODEL LOADING ERROR:")
+    print("\n❌ MODEL LOADING ERROR")
+    print("-----------------------------------")
     print(e)
+    print("-----------------------------------")
 
     raise
 
@@ -150,7 +148,7 @@ print(
 
 
 # ============================================================
-# SYMPTOM ALIASES / BASIC NLP
+# SYMPTOM ALIASES
 # ============================================================
 
 symptom_aliases = {
@@ -160,21 +158,24 @@ symptom_aliases = {
         "trouble breathing",
         "breathing problem",
         "breathlessness",
-        "hard to breathe"
+        "hard to breathe",
+        "shortness of breath"
     ],
 
     "abdominal pain": [
         "stomach pain",
         "stomach ache",
         "belly pain",
-        "pain in stomach"
+        "pain in stomach",
+        "abdominal pain"
     ],
 
     "sharp chest pain": [
         "chest pain",
         "pain in chest",
         "chest hurts",
-        "pain around chest"
+        "pain around chest",
+        "sharp chest pain"
     ],
 
     "cough": [
@@ -186,7 +187,8 @@ symptom_aliases = {
         "feeling dizzy",
         "dizzy",
         "lightheaded",
-        "light headed"
+        "light headed",
+        "dizziness"
     ],
 
     "sore throat": [
@@ -266,7 +268,7 @@ def clean_text(text):
 
 
 # ============================================================
-# NLP SYMPTOM EXTRACTION
+# EXTRACT SYMPTOMS
 # ============================================================
 
 def extract_symptoms(text):
@@ -276,7 +278,7 @@ def extract_symptoms(text):
     detected = set()
 
     # --------------------------------------------------------
-    # Exact dataset symptom matching
+    # Dataset symptom matching
     # --------------------------------------------------------
 
     for symptom in symptom_columns:
@@ -302,7 +304,9 @@ def extract_symptoms(text):
 
         for alias in aliases:
 
-            alias = clean_text(alias)
+            alias = clean_text(
+                alias
+            )
 
             if alias in text:
 
@@ -331,6 +335,7 @@ def create_feature_vector(
         else 0
 
         for symptom in symptom_columns
+
     ]
 
     return np.array(
@@ -343,7 +348,7 @@ def create_feature_vector(
 
 
 # ============================================================
-# ML PREDICTION
+# PREDICT FROM SYMPTOMS
 # ============================================================
 
 def predict_from_symptoms(
@@ -355,26 +360,32 @@ def predict_from_symptoms(
         return None
 
     # Create feature vector
+
     feature_vector = create_feature_vector(
         detected_symptoms
     )
 
-    # Scale features
+    # Scale
+
     scaled_features = scaler.transform(
         feature_vector
     )
 
     # KNN prediction
+
     prediction = knn_model.predict(
         scaled_features
     )
 
-    # Decode disease
+    # Convert encoded value to disease
+
     disease = encoder.inverse_transform(
         prediction
     )[0]
 
-    return str(disease)
+    return str(
+        disease
+    )
 
 
 # ============================================================
@@ -400,6 +411,7 @@ def predict_disease(text):
             "symptoms": [],
 
             "disease": None
+
         }
 
     disease = predict_from_symptoms(
@@ -418,6 +430,7 @@ def predict_disease(text):
 
         "disease":
             disease
+
     }
 
 
@@ -493,9 +506,7 @@ def extract_image_text(file_path):
             file_path
         )
 
-        # ----------------------------------------------------
         # Check Tesseract
-        # ----------------------------------------------------
 
         if not os.path.exists(
             TESSERACT_PATH
@@ -507,9 +518,7 @@ def extract_image_text(file_path):
 
             return ""
 
-        # ----------------------------------------------------
         # Open image
-        # ----------------------------------------------------
 
         image = Image.open(
             file_path
@@ -524,17 +533,13 @@ def extract_image_text(file_path):
             image.size
         )
 
-        # ----------------------------------------------------
         # RGB
-        # ----------------------------------------------------
 
         image = image.convert(
             "RGB"
         )
 
-        # ----------------------------------------------------
         # Upscale
-        # ----------------------------------------------------
 
         image = image.resize(
             (
@@ -549,29 +554,27 @@ def extract_image_text(file_path):
             image.size
         )
 
-        # ----------------------------------------------------
         # Grayscale
-        # ----------------------------------------------------
 
         gray = ImageOps.grayscale(
             image
         )
 
-        # ----------------------------------------------------
-        # Improve contrast
-        # ----------------------------------------------------
+        # Contrast
 
         gray = ImageEnhance.Contrast(
             gray
-        ).enhance(2.5)
+        ).enhance(
+            2.5
+        )
 
-        # ----------------------------------------------------
-        # Improve sharpness
-        # ----------------------------------------------------
+        # Sharpness
 
         gray = ImageEnhance.Sharpness(
             gray
-        ).enhance(2)
+        ).enhance(
+            2
+        )
 
         # ----------------------------------------------------
         # OCR ATTEMPT 1
@@ -609,9 +612,7 @@ def extract_image_text(file_path):
             len(text2)
         )
 
-        # ----------------------------------------------------
-        # Select better result
-        # ----------------------------------------------------
+        # Choose better OCR result
 
         if len(
             text2.strip()
@@ -628,7 +629,7 @@ def extract_image_text(file_path):
         text = text.strip()
 
         # ----------------------------------------------------
-        # OCR RESULT
+        # RESULT
         # ----------------------------------------------------
 
         print("-----------------------------------")
@@ -706,6 +707,7 @@ def extract_report_text(file_path):
     )
 
     # PDF
+
     if extension == "pdf":
 
         return extract_pdf_text(
@@ -713,6 +715,7 @@ def extract_report_text(file_path):
         )
 
     # IMAGE
+
     if extension in {
         "jpg",
         "jpeg",
@@ -835,7 +838,7 @@ def analyze_report():
     try:
 
         # ----------------------------------------------------
-        # Check file
+        # CHECK FILE
         # ----------------------------------------------------
 
         if "report" not in request.files:
@@ -879,7 +882,7 @@ def analyze_report():
             }), 400
 
         # ----------------------------------------------------
-        # Save file
+        # SAVE TEMPORARY FILE
         # ----------------------------------------------------
 
         filename = secure_filename(
@@ -905,7 +908,7 @@ def analyze_report():
         )
 
         # ----------------------------------------------------
-        # Extract text
+        # EXTRACT TEXT
         # ----------------------------------------------------
 
         report_text = extract_report_text(
@@ -930,7 +933,7 @@ def analyze_report():
             }), 400
 
         # ----------------------------------------------------
-        # Limit text
+        # LIMIT TEXT
         # ----------------------------------------------------
 
         report_text = report_text[
@@ -938,7 +941,7 @@ def analyze_report():
         ]
 
         # ----------------------------------------------------
-        # Detect symptoms
+        # DETECT SYMPTOMS
         # ----------------------------------------------------
 
         detected_symptoms = extract_symptoms(
@@ -946,7 +949,7 @@ def analyze_report():
         )
 
         # ----------------------------------------------------
-        # Predict disease
+        # PREDICT DISEASE
         # ----------------------------------------------------
 
         disease = None
@@ -958,7 +961,7 @@ def analyze_report():
             )
 
         # ----------------------------------------------------
-        # Analysis message
+        # ANALYSIS MESSAGE
         # ----------------------------------------------------
 
         if disease:
@@ -984,7 +987,7 @@ def analyze_report():
             )
 
         # ----------------------------------------------------
-        # Terminal output
+        # TERMINAL OUTPUT
         # ----------------------------------------------------
 
         print(
@@ -1002,7 +1005,7 @@ def analyze_report():
         )
 
         # ----------------------------------------------------
-        # Return JSON
+        # JSON RESPONSE
         # ----------------------------------------------------
 
         return jsonify({
@@ -1055,7 +1058,7 @@ def analyze_report():
     finally:
 
         # ----------------------------------------------------
-        # Delete temporary file
+        # DELETE TEMPORARY FILE
         # ----------------------------------------------------
 
         if (
@@ -1123,7 +1126,11 @@ if __name__ == "__main__":
     )
 
     print(
-        "Memory Optimisation: ENABLED"
+        "Lightweight KNN Model: ENABLED"
+    )
+
+    print(
+        "Model: knn_model_light.pkl"
     )
 
     print(
@@ -1134,7 +1141,6 @@ if __name__ == "__main__":
         "===================================\n"
     )
 
-    # No reloader = model won't load twice
     app.run(
         host="127.0.0.1",
         port=5000,

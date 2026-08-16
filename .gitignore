@@ -1,2 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Large original ML files
 knn_model.pkl
 dataset/
+
+# Temporary uploads
+uploads/
+
+# Local files
+.env
+.vscode/
