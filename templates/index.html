@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>HealthAI | AI Healthcare Assistant</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+<!-- =========================
+     NAVBAR
+========================= -->
+
+<nav class="navbar">
+
+    <div class="logo">
+        <span class="logo-icon">🩺</span>
+        <span>Health<span class="logo-blue">AI</span></span>
+    </div>
+
+    <div class="nav-links">
+
+        <a href="#home">Home</a>
+        <a href="#analyze">AI Diagnosis</a>
+        <a href="#report">Medical Report</a>
+
+        <button
+            id="themeBtn"
+            class="theme-btn"
+            onclick="toggleTheme()">
+            🌙
+        </button>
+
+    </div>
+
+</nav>
+
+
+<!-- =========================
+     HERO
+========================= -->
+
+<section class="hero" id="home">
+
+    <div class="hero-content">
+
+        <div class="badge">
+            <span>✦</span>
+            AI-POWERED HEALTHCARE
+        </div>
+
+        <h1>
+            Your Health.<br>
+            <span>Smarter.</span>
+        </h1>
+
+        <p>
+            An intelligent healthcare assistant powered by
+            Machine Learning and Natural Language Processing
+            to understand symptoms and provide an AI-assisted
+            health assessment.
+        </p>
+
+        <div class="hero-buttons">
+
+            <a href="#analyze" class="primary-btn">
+                Start Health Analysis
+                <span>→</span>
+            </a>
+
+            <a href="#report" class="secondary-btn">
+                📄 Upload Report
+            </a>
+
+        </div>
+
+        <div class="trust-line">
+
+            <span>✓</span>
+            587 Disease Classes
+
+            <span>✓</span>
+            ML Powered
+
+            <span>✓</span>
+            NLP Enabled
+
+        </div>
+
+    </div>
+
+
+    <!-- HERO HEALTH CARD -->
+
+    <div class="hero-visual">
+
+        <div class="glow"></div>
+
+        <div class="health-card">
+
+            <div class="card-top">
+
+                <span>AI HEALTH MONITOR</span>
+
+                <span class="online">
+                    <i></i>
+                    ONLINE
+                </span>
+
+            </div>
+
+
+            <div class="heart-container">
+
+                <div class="heart">
+                    ♥
+                </div>
+
+                <div class="pulse-line">
+                    ━━╱╲━━╱╲━━╱╲━━
+                </div>
+
+            </div>
+
+
+            <div class="health-info">
+
+                <div>
+                    <small>AI STATUS</small>
+                    <strong>Ready</strong>
+                </div>
+
+                <div>
+                    <small>MODEL</small>
+                    <strong>ML + NLP</strong>
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     AI DIAGNOSIS
+========================= -->
+
+<section class="section" id="analyze">
+
+    <div class="section-title">
+
+        <span>AI DIAGNOSIS</span>
+
+        <h2>
+            Tell us what you're feeling
+        </h2>
+
+        <p>
+            Describe your symptoms naturally.
+            Our AI will detect recognizable symptoms
+            and predict a possible condition.
+        </p>
+
+    </div>
+
+
+    <div class="diagnosis-card">
+
+        <div class="input-header">
+
+            <label for="symptoms">
+                📝 Describe Your Symptoms
+            </label>
+
+            <span>
+                NLP Enabled
+            </span>
+
+        </div>
+
+
+        <textarea
+            id="symptoms"
+            placeholder="Example: I have cough, dizziness, sore throat and chest pain..."></textarea>
+
+
+        <!-- QUICK SYMPTOMS -->
+
+        <div class="example-symptoms">
+
+            <span onclick="addExample('cough and sore throat')">
+                cough
+            </span>
+
+            <span onclick="addExample('dizziness and headache')">
+                dizziness
+            </span>
+
+            <span onclick="addExample('chest pain and shortness of breath')">
+                chest pain
+            </span>
+
+            <span onclick="addExample('stomach pain and vomiting')">
+                stomach pain
+            </span>
+
+        </div>
+
+
+        <!-- ANALYZE BUTTON -->
+
+        <button
+            id="analyzeBtn"
+            class="analyze-btn"
+            onclick="analyzeSymptoms()">
+
+            🧠 Analyze Symptoms
+            <span>→</span>
+
+        </button>
+
+
+        <!-- LOADING -->
+
+        <div
+            id="loading"
+            class="loading hidden">
+
+            <div class="loader"></div>
+
+            <p>
+                AI is analyzing your symptoms...
+            </p>
+
+        </div>
+
+
+        <!-- =========================
+             DIAGNOSIS RESULT
+        ========================= -->
+
+        <div
+            id="result"
+            class="result hidden">
+
+            <div class="result-title">
+
+                <span>🤖</span>
+
+                AI Analysis Result
+
+            </div>
+
+
+            <!-- CONDITION -->
+
+            <div class="condition-card">
+
+                <div class="condition-icon">
+                    🩺
+                </div>
+
+                <div>
+
+                    <small>
+                        POSSIBLE CONDITION
+                    </small>
+
+                    <h2 id="disease">
+                        —
+                    </h2>
+
+                </div>
+
+            </div>
+
+
+            <!-- RESULT GRID -->
+
+            <div class="result-grid">
+
+
+                <!-- DETECTED SYMPTOMS -->
+
+                <div class="result-box">
+
+                    <h3>
+                        🔍 Detected Symptoms
+                    </h3>
+
+                    <div id="detectedSymptoms"></div>
+
+                </div>
+
+
+                <!-- PRECAUTIONS -->
+
+                <div class="result-box">
+
+                    <h3>
+                        🛡️ General Precautions
+                    </h3>
+
+                    <ul>
+
+                        <li>
+                            Stay hydrated.
+                        </li>
+
+                        <li>
+                            Take adequate rest.
+                        </li>
+
+                        <li>
+                            Monitor your symptoms.
+                        </li>
+
+                        <li>
+                            Avoid self-medication.
+                        </li>
+
+                        <li>
+                            Consult a qualified healthcare professional.
+                        </li>
+
+                    </ul>
+
+                </div>
+
+            </div>
+
+
+            <!-- WARNING -->
+
+            <div class="medical-warning">
+
+                ⚠️
+
+                <strong>Important:</strong>
+
+                This AI prediction is for educational and
+                informational purposes only. It is not a
+                medical diagnosis and should not replace
+                professional medical advice.
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     MEDICAL REPORT
+========================= -->
+
+<section
+    class="section report-section"
+    id="report">
+
+    <div class="section-title">
+
+        <span>MEDICAL REPORT</span>
+
+        <h2>
+            Upload your medical report
+        </h2>
+
+        <p>
+            Upload a PDF or image of your report for
+            AI-assisted healthcare analysis.
+        </p>
+
+    </div>
+
+
+    <div class="upload-card">
+
+
+        <!-- ICON -->
+
+        <div class="upload-icon">
+            📄
+        </div>
+
+
+        <h3>
+            Drop your medical report here
+        </h3>
+
+
+        <p>
+            PDF, JPG, JPEG or PNG
+        </p>
+
+
+        <!-- FILE INPUT -->
+
+        <label class="file-label">
+
+            Choose File
+
+            <input
+                type="file"
+                id="reportFile"
+                accept=".pdf,.jpg,.jpeg,.png">
+
+        </label>
+
+
+        <!-- SELECTED FILE -->
+
+        <div
+            id="uploadMessage"
+            class="upload-message">
+        </div>
+
+
+        <!-- =========================
+             ANALYZE REPORT BUTTON
+        ========================= -->
+
+        <button
+            id="analyzeReportBtn"
+            class="report-analyze-btn"
+            onclick="analyzeReport()">
+
+            🧠 Analyze Medical Report
+
+        </button>
+
+
+        <!-- REPORT LOADING -->
+
+        <div
+            id="reportLoading"
+            class="report-loading hidden">
+
+            <div class="loader"></div>
+
+            <p>
+                AI is analyzing your medical report...
+            </p>
+
+        </div>
+
+
+        <!-- =========================
+             REPORT RESULT
+        ========================= -->
+
+        <div
+            id="reportResult"
+            class="report-result hidden">
+
+            <div class="result-title">
+
+                <span>📋</span>
+
+                AI Report Analysis
+
+            </div>
+
+
+            <div class="report-result-content">
+
+                <p id="reportText">
+                    —
+                </p>
+
+            </div>
+
+
+            <div class="medical-warning">
+
+                ⚠️
+
+                Report analysis is intended for
+                educational assistance only. Always
+                consult a qualified healthcare professional
+                for interpretation of medical reports.
+
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     HOW IT WORKS
+========================= -->
+
+<section class="how-section">
+
+    <div class="section-title">
+
+        <span>HOW IT WORKS</span>
+
+        <h2>
+            Intelligent healthcare in simple steps
+        </h2>
+
+    </div>
+
+
+    <div class="steps">
+
+        <div class="step-card">
+
+            <div class="step-number">
+                01
+            </div>
+
+            <div class="step-icon">
+                💬
+            </div>
+
+            <h3>
+                Describe Symptoms
+            </h3>
+
+            <p>
+                Enter your symptoms naturally
+                using everyday language.
+            </p>
+
+        </div>
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                02
+            </div>
+
+            <div class="step-icon">
+                🧠
+            </div>
+
+            <h3>
+                AI Processing
+            </h3>
+
+            <p>
+                NLP identifies symptoms and
+                converts them into model features.
+            </p>
+
+        </div>
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                03
+            </div>
+
+            <div class="step-icon">
+                📊
+            </div>
+
+            <h3>
+                ML Prediction
+            </h3>
+
+            <p>
+                The trained machine learning model
+                predicts a possible condition.
+            </p>
+
+        </div>
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                04
+            </div>
+
+            <div class="step-icon">
+                🩺
+            </div>
+
+            <h3>
+                Health Guidance
+            </h3>
+
+            <p>
+                View detected symptoms and
+                general precautionary information.
+            </p>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     FEATURES
+========================= -->
+
+<section class="features-section">
+
+    <div class="section-title">
+
+        <span>SMART HEALTHCARE</span>
+
+        <h2>
+            Built with AI Technology
+        </h2>
+
+        <p>
+            Combining multiple concepts from
+            Artificial Intelligence and Machine Learning.
+        </p>
+
+    </div>
+
+
+    <div class="features">
+
+
+        <div class="feature-card">
+
+            <div class="feature-icon">
+                🧠
+            </div>
+
+            <h3>
+                Machine Learning
+            </h3>
+
+            <p>
+                Disease prediction using trained
+                classification models.
+            </p>
+
+        </div>
+
+
+        <div class="feature-card">
+
+            <div class="feature-icon">
+                💬
+            </div>
+
+            <h3>
+                Natural Language Processing
+            </h3>
+
+            <p>
+                Understand symptoms written
+                naturally by the user.
+            </p>
+
+        </div>
+
+
+        <div class="feature-card">
+
+            <div class="feature-icon">
+                🌳
+            </div>
+
+            <h3>
+                Decision Tree
+            </h3>
+
+            <p>
+                A trained classification model
+                used for disease prediction.
+            </p>
+
+        </div>
+
+
+        <div class="feature-card">
+
+            <div class="feature-icon">
+                📊
+            </div>
+
+            <h3>
+                Data Driven
+            </h3>
+
+            <p>
+                Built using a large multi-disease
+                symptom dataset.
+            </p>
+
+        </div>
+
+
+        <div class="feature-card">
+
+            <div class="feature-icon">
+                🔍
+            </div>
+
+            <h3>
+                Symptom Detection
+            </h3>
+
+            <p>
+                Extract recognizable symptoms
+                from natural language input.
+            </p>
+
+        </div>
+
+
+        <div class="feature-card">
+
+            <div class="feature-icon">
+                ⚡
+            </div>
+
+            <h3>
+                Fast Prediction
+            </h3>
+
+            <p>
+                Generate a prediction within
+                seconds after analysis.
+            </p>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     TECHNOLOGY STRIP
+========================= -->
+
+<section class="tech-section">
+
+    <div class="tech-title">
+        TECHNOLOGIES USED
+    </div>
+
+    <div class="tech-list">
+
+        <span>Python</span>
+        <span>Flask</span>
+        <span>Scikit-Learn</span>
+        <span>Machine Learning</span>
+        <span>NLP</span>
+        <span>HTML</span>
+        <span>CSS</span>
+        <span>JavaScript</span>
+
+    </div>
+
+</section>
+
+
+<!-- =========================
+     FOOTER
+========================= -->
+
+<footer>
+
+    <div class="footer-logo">
+
+        🩺 Health<span>AI</span>
+
+    </div>
+
+    <p>
+        AI-Powered Healthcare Diagnosis Assistant
+    </p>
+
+    <small>
+        Built for educational purposes •
+        Not a substitute for professional medical advice.
+    </small>
+
+</footer>
+
+
+<!-- JAVASCRIPT -->
+
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+
+</body>
+
+</html>
